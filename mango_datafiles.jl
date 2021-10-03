@@ -7,24 +7,9 @@ import LinearAlgebra
 import Statistics
 import Random
 
-dataset_path = "./mango_images"
+global _dataset_path = "./mango_images"
 
-classname = readdir(dataset_path)       # class name given by subfolders
-no_class = length(classname)
-
-# load all images path by class
-class_imgpath = Vector{Vector{String}}(undef, no_class)
-for i = 1:no_class
-    class_imgpath[i] = readdir(joinpath(dataset_path, classname[i]), join=true)
-end
-
-no_img = sum(length.(class_imgpath))
-
-println("Dataset dir: $dataset_path")
-println("Dataset Class Count: $no_class")
-println("Dataset Image Count: $no_img")
-
-# for this project = 5 class
+# specific implement for this project = 5 class
 struct MangoData
     cls_l::Vector{String}           # vector of image path (string) 
     cls_low::Vector{String}
@@ -84,13 +69,37 @@ struct dataFold
     testing_img::MangoData
 end
 
-dataFold_1 = dataFold(buildMangoDataFold(1; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-dataFold_2 = dataFold(buildMangoDataFold(2; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-dataFold_3 = dataFold(buildMangoDataFold(3; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-dataFold_4 = dataFold(buildMangoDataFold(4; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-dataFold_5 = dataFold(buildMangoDataFold(5; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+## Init Dataset ##
+# for rebuild or re-locate dataset directory
+function initMangoDataset(;dataset_path=_dataset_path)
+    global _classname = readdir(_dataset_path)       # class name given by subfolders
+    global _classcount = length(_classname)
+    
+    # load all images path by class
+    class_imgpath = Vector{Vector{String}}(undef, _classcount)
+    for i = 1:_classcount
+        class_imgpath[i] = readdir(joinpath(_dataset_path, _classname[i]), join=true)
+    end
+    
+    global _dataset_imgcount = sum(length.(class_imgpath))
+    
+    println("Dataset dir: $_dataset_path")
+    println("Dataset Class Count: $_classcount")
+    println("Dataset Image Count: $_dataset_imgcount")
 
-# dispatch image by type(training or testing)
+    # create datafold
+    global dataFold_1 = dataFold(buildMangoDataFold(1; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+    global dataFold_2 = dataFold(buildMangoDataFold(2; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+    global dataFold_3 = dataFold(buildMangoDataFold(3; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+    global dataFold_4 = dataFold(buildMangoDataFold(4; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+    global dataFold_5 = dataFold(buildMangoDataFold(5; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+end
+
+# Initialize This Dataset
+initMangoDataset();
+##################
+
+# Function: dispatch image by type(training or testing)
 # one-hot encoding for class dispatch
 mutable struct MangoDispatcher
     current_MangoFold::MangoData
@@ -107,7 +116,7 @@ end
 function MangoDispatcher(mangofold::MangoData, output_size=[224,224], dispatch_size=1, shuffle_enable=true)
     # calculate indexing vector
     index_vector = Int[]
-    for cls_no = 1:no_class
+    for cls_no = 1:_classcount
         index_vector = cat(index_vector, repeat([cls_no,], outer=mangofold.cls_datacount[cls_no]), dims=1)
     end
 
@@ -136,16 +145,12 @@ function resetMangoDispatcher!(x::MangoDispatcher;shuffle_enable=x.shuffle_enabl
     return x
 end
 
-function dispatchMango(datafold::DataFold; output_size=[224,224], dispatch_size=1, shuffle_enable=true)
-
-
-    # dispatch image data : loaded_img  
-    temp_img = Images.load(data_url[select_indx]);
-    temp_img_pp = Images.imresize(temp_img, w, h);
-    temp_img_pp = Images.channelview(temp_img_pp); # Channel x W x H
-    loaded_img = copy(temp_img_pp);  
-    loaded_img = PermutedDimsArray(loaded_img, (2, 3, 1)); # W.H.C
-    loaded_img = Flux.unsqueeze(loaded_img, 4); # W.H.C.N
-
-
-end    
+# function dispatchMango(datafold::DataFold; output_size=[224,224], dispatch_size=1, shuffle_enable=true)
+#     # dispatch image data : loaded_img  
+#     temp_img = Images.load(data_url[select_indx]);
+#     temp_img_pp = Images.imresize(temp_img, w, h);
+#     temp_img_pp = Images.channelview(temp_img_pp); # Channel x W x H
+#     loaded_img = copy(temp_img_pp);  
+#     loaded_img = PermutedDimsArray(loaded_img, (2, 3, 1)); # W.H.C
+#     loaded_img = Flux.unsqueeze(loaded_img, 4); # W.H.C.N
+# end    
