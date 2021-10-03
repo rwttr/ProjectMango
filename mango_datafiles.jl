@@ -107,7 +107,7 @@ end
 function MangoDispatcher(mangofold::MangoData, output_size=[224,224], dispatch_size=1, shuffle_enable=true)
     # calculate indexing vector
     index_vector = Int[]
-    for cls_no = 1:5
+    for cls_no = 1:no_class
         index_vector = cat(index_vector, repeat([cls_no,], outer=mangofold.cls_datacount[cls_no]), dims=1)
     end
 
