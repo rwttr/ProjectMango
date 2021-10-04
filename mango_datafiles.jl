@@ -9,18 +9,14 @@ import Random
 
 global _dataset_path = "./mango_images"
 
-# specific implement for this project = 5 class
 struct MangoData
-    cls_l::Vector{String}           # vector of image path (string) 
-    cls_low::Vector{String}
-    cls_m::Vector{String}
-    cls_s::Vector{String}
-    cls_reject::Vector{String}
-    cls_datacount::Vector{Integer}
-    n::Integer
-end
+    cls_file_url::Vector{Vector{String}}    # image file url for each class 
+    cls_name::Vector{String}                # classname 
+    cls_datacount::Vector{Integer}          # datacount for each class
+    n::Integer                              # total image count
+end 
 
-function buildMangoDataFold(fold_no::Int; kfold=5, n_cls=5, class_imgpath=class_imgpath)
+function buildMangoDataFold(fold_no::Int; kfold=5, n_cls=5, cls_name=_classname, class_imgpath=class_imgpath)
     # largest cls size
     cls_len = length.(class_imgpath) 
     kfold_comlen = maximum(cls_len)
@@ -41,7 +37,7 @@ function buildMangoDataFold(fold_no::Int; kfold=5, n_cls=5, class_imgpath=class_
         imgpath_cls_vec_test[cls_no] = imgpath_cls_temp
     end
     # testdata fold
-    testdataFold = MangoData(imgpath_cls_vec_test..., cls_datacount_test, sum(cls_datacount_test))
+    testdataFold = MangoData(imgpath_cls_vec_test, cls_name, cls_datacount_test, sum(cls_datacount_test))
 
     # training data pick
     trainingdata_indexer = findall(x -> x != fold_no, kfold_label)
@@ -58,7 +54,7 @@ function buildMangoDataFold(fold_no::Int; kfold=5, n_cls=5, class_imgpath=class_
         imgpath_cls_vec_train[cls_no] = imgpath_cls_temp
     end
     # training data fold
-    trainingDataFold = MangoData(imgpath_cls_vec_train..., cls_datacount_train, sum(cls_datacount_train))
+    trainingDataFold = MangoData(imgpath_cls_vec_train, cls_name, cls_datacount_train, sum(cls_datacount_train))
 
     return trainingDataFold, testdataFold
 end
@@ -88,11 +84,11 @@ function initMangoDataset(;dataset_path=_dataset_path)
     println("Dataset Image Count: $_dataset_imgcount")
 
     # create datafold
-    global dataFold_1 = dataFold(buildMangoDataFold(1; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-    global dataFold_2 = dataFold(buildMangoDataFold(2; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-    global dataFold_3 = dataFold(buildMangoDataFold(3; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-    global dataFold_4 = dataFold(buildMangoDataFold(4; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
-    global dataFold_5 = dataFold(buildMangoDataFold(5; kfold=5, n_cls=5, class_imgpath=class_imgpath)...)
+    global dataFold_1 = dataFold(buildMangoDataFold(1; kfold=5, n_cls=5, cls_name=_classname, class_imgpath=class_imgpath)...)
+    global dataFold_2 = dataFold(buildMangoDataFold(2; kfold=5, n_cls=5, cls_name=_classname, class_imgpath=class_imgpath)...)
+    global dataFold_3 = dataFold(buildMangoDataFold(3; kfold=5, n_cls=5, cls_name=_classname, class_imgpath=class_imgpath)...)
+    global dataFold_4 = dataFold(buildMangoDataFold(4; kfold=5, n_cls=5, cls_name=_classname, class_imgpath=class_imgpath)...)
+    global dataFold_5 = dataFold(buildMangoDataFold(5; kfold=5, n_cls=5, cls_name=_classname, class_imgpath=class_imgpath)...)
 end
 
 # Initialize This Dataset
@@ -100,39 +96,49 @@ initMangoDataset();
 ##################
 
 # Function: dispatch image by type(training or testing)
-# one-hot encoding for class dispatch
+# mutable struct for recording the data index 
+# Flux one-hot encoding for class label
 mutable struct MangoDispatcher
-    current_MangoFold::MangoData
-    current_index::Integer
-    index_vector::Vector{Int}
-    max_index::Integer
+    mangodata::MangoData
+    
+    # class number selection
+    cls_current_index::Integer
+    cls_index_vector::Vector{Int}               
+    cls_max_index::Integer
+    
+    # in-class file url selection 
+    incls_current_index::Vector{Int}             
+    incls_index_vector::Vector{Vector{Int}}
+    incls_max_index::Vector{Int}   
+
     shuffle_enable::Bool
     minibatch_size::Integer
     no_class::Integer
     outputsize::Vector{Int}
 end
+
 @functor MangoDispatcher
 # constructor / modifier
-function MangoDispatcher(mangofold::MangoData, output_size=[224,224], dispatch_size=1, shuffle_enable=true)
-    # calculate indexing vector
-    index_vector = Int[]
-    for cls_no = 1:_classcount
-        index_vector = cat(index_vector, repeat([cls_no,], outer=mangofold.cls_datacount[cls_no]), dims=1)
+function MangoDispatcher(mangofold::MangoData, output_size=[224,224], dispatch_size=1,
+    shuffle_enable=true, classcount=_classcount)
+
+    cls_index_vector = Int[]    # class-pick indexing vector
+    incls_index_vector = Vector{Vector{Int}}(undef, classcount)   # in-class pick indexing vector
+    for cls_no = 1:classcount
+        cls_index_vector = cat(cls_index_vector, repeat([cls_no,], outer=mangofold.cls_datacount[cls_no]), dims=1)
+        incls_index_vector[cls_no] = 1:mangofold.cls_datacount[cls_no]
     end
 
     if shuffle_enable
-        Random.shuffle!(index_vector)
+        Random.shuffle!(cls_index_vector)
+        Random.shuffle!.(incls_index_vector)
     end
-   
+
     return MangoDispatcher(
         mangofold,
-        0,
-        index_vector,
-        mangofold.datacount,
-        shuffle_enable,
-        dispatch_size,
-        5,
-        output_size
+        0, cls_index_vector, mangofold.n,
+        zeros(classcount), incls_index_vector, mangofold.cls_datacount,
+        shuffle_enable, dispatch_size, classcount, output_size
     );
 end
 
@@ -140,17 +146,53 @@ end
 function resetMangoDispatcher!(x::MangoDispatcher;shuffle_enable=x.shuffle_enable)
     x.current_index = 0;
     if shuffle_enable
-        Random.shuffle!(x.index_vector)
+        Random.shuffle!(x.cls_index_vector)
+        Random.shuffle!.(x.incls_index_vector)
     end
     return x
 end
 
-# function dispatchMango(datafold::DataFold; output_size=[224,224], dispatch_size=1, shuffle_enable=true)
-#     # dispatch image data : loaded_img  
-#     temp_img = Images.load(data_url[select_indx]);
-#     temp_img_pp = Images.imresize(temp_img, w, h);
-#     temp_img_pp = Images.channelview(temp_img_pp); # Channel x W x H
-#     loaded_img = copy(temp_img_pp);  
-#     loaded_img = PermutedDimsArray(loaded_img, (2, 3, 1)); # W.H.C
-#     loaded_img = Flux.unsqueeze(loaded_img, 4); # W.H.C.N
-# end    
+function (x::MangoDispatcher)()
+    x.cls_current_index += 1 # update index pointer
+    if (x.cls_current_index + x.minibatch_size) <= x.cls_max_index
+        
+        select_cls = x.cls_index_vector[x.cls_current_index]    # select class
+        x.incls_current_index[select_cls] += 1                  # update index pointer
+        
+        # select, load  image file
+        img_filename = x.mangodata.cls_file_url[select_cls][x.incls_current_index[select_cls]]
+        temp_img = Images.load(img_filename);
+        temp_img_pp = Images.imresize(temp_img, x.outputsize...) |> Images.channelview; 
+        # Images.channelview() = Channel x W x H 
+        loaded_img = PermutedDimsArray(copy(temp_img_pp), (2, 3, 1));   # W.H.C
+        loaded_img = Flux.unsqueeze(loaded_img, 4);                     # W.H.C.N
+
+        # load label 
+        loaded_label = Flux.onehot()
+
+        if x.minibatch_size > 1
+            for i = 2:x.minibatch_size
+                x.cls_index_vector += 1
+                select_cls = x.cls_index_vector[x.cls_current_index]    # select class
+                x.incls_current_index[select_cls] += 1                  # update index pointer
+
+                temp_img = Images.load(data_url[select_indx]);
+                temp_img_pp = Images.imresize(temp_img, w, h);
+                temp_img_pp = Images.channelview(temp_img_pp); # Channel x W x H
+                temp_img_pp = PermutedDimsArray(temp_img_pp, (2, 3, 1)); # W.H.C
+                temp_img_pp = Flux.unsqueeze(temp_img_pp, 4); # W.H.C.N
+                loaded_img = cat(temp_img_pp, loaded_img; dims=4); # concatenate loaded image along dims=4 dimension
+                loaded_img = copy(loaded_img);
+            end
+        end
+
+    end
+
+    outputDL = Flux.Data.DataLoader(
+        (loaded_img, cls_label),
+        batchsize=x.minibatch_size,
+        shuffle=x.shuffle_enable    
+    );
+
+    return outputDL
+end
